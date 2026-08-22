@@ -1,33 +1,61 @@
 name: CI-Release
-on: [ push, pull_request ]
+
+on:
+  pull_request:
+    types: [ opened, reopened ]
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
 jobs:
   build-binary:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
         with:
-          fetch-depth: 0
-      - name: Docker Layer Caching
-        uses: jpribyl/action-docker-layer-caching@v0.1.1
-        continue-on-error: true
-        with:
-          key: compat-installer-docker-cache-{hash}
-          restore-keys: |
-            compat-installer-docker-cache-
-      - name: Build artifacts
+          context: .
+          load: true
+          tags: builder:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: build binary
         run: |
-          docker build . --file Dockerfile --tag builder
-          docker run --rm -v ${PWD}:/project builder make -j$(nproc) release
-      - name: Upload HBL version
-        uses: actions/upload-artifact@v4
+          docker run --rm -v ${PWD}:/project builder:latest /bin/bash -c "make release"
+      - uses: actions/upload-artifact@v4
         with:
-          name: compat_installer-HBL.zip
-          path: compat_installer-HBL.zip
-          if-no-files-found: warn
-      - name: Upload Aroma version
-        uses: actions/upload-artifact@v4
+          name: compat_installer
+          path: |
+            compat_installer-HBL.zip
+            compat_installer-Aroma.zip
+  deploy-binary:
+    needs: build-binary
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get environment variables
+        id: get_repository_name
+        run: |
+          echo "REPOSITORY_NAME=$(echo "$GITHUB_REPOSITORY" | awk -F / '{print $2}' | sed -e "s/:refs//")" >> $GITHUB_ENV
+          echo "DATETIME=$(date '+%Y%m%d-%H%M%S')" >> $GITHUB_ENV
+      - uses: actions/download-artifact@v4
         with:
-          name: compat_installer-Aroma.zip
-          path: compat_installer-Aroma.zip
-          if-no-files-found: warn
+          name: compat_installer
+          path: compat_installer
+      - name: Create Release
+        uses: "softprops/action-gh-release@v2"
+        with:
+          tag_name: ${{ env.REPOSITORY_NAME }}-${{ env.DATETIME }}
+          draft: true
+          prerelease: true
+          generate_release_notes: true
+          name: Nightly-${{ env.REPOSITORY_NAME }}-${{ env.DATETIME }}
+          files: |
+            compat_installer/compat_installer-HBL.zip
+            compat_installer/compat_installer-Aroma.zip
