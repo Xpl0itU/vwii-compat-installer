@@ -2,6 +2,7 @@
 #include "ScreenUtils.h"
 #include "StateUtils.h"
 #include "InputUtils.h"
+#include "log.h"
 #include <unistd.h>
 
 static void DrawMenu(const std::vector<std::string>& header, const std::vector<std::string>& options, int selected, bool allowCancel) {
@@ -169,6 +170,7 @@ std::vector<int> ShowMultiSelectMenu(const std::vector<std::string>& header, con
             if (result.empty()) {
                 result.push_back(cursor);
             }
+            WUPI_resetScreen();
             return result;
         }
         
